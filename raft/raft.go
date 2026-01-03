@@ -13,10 +13,14 @@ const (
 	Leader
 )
 
+type Peer interface{
+	Call(method string, args any, reply any) bool
+}
 
 type Raft struct{
 	state State
 	currentTerm int32
+	peers []Peer
 	votedFor int32
 	commitIndex int32
 	lastApplied int32
@@ -42,7 +46,6 @@ type RequestVoteReply struct{
 	VoteGranted bool
 }
 
-
 type AppendEntriesArgs struct{
 	Term int32
 	LeaderId int32
@@ -56,7 +59,6 @@ type AppendEntriesReply struct{
 	Term int32
 	Success bool
 }
-
 
 func(rf *Raft) StartElection(){
 	fmt.Println("Starting Election")
@@ -98,16 +100,35 @@ func(rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply){
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 	}
+
+	// reply.Term = rf.currentTerm
+	// reply.VoteGranted = true
+	return 
+
+	
 }
 
 func(rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply){
-
+	fmt.Println("Sending Votes")
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply){
 	fmt.Println("Appending Entries")
 }
 
+func Make(me int32, peers []Peer) *Raft {
+	rf := &Raft{}
 
+	rf.state = Follower
+	rf.currentTerm = 0
+	rf.votedFor = -1
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+	rf.log = make([]LogEntry, 1)
+	rf.me = me
+	rf.peers = peers
+
+	return rf
+}
 
 //go test ./... -v

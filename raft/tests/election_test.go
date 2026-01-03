@@ -6,5 +6,4 @@ import (
 
 
 func TestElectionRaft(t *testing.T){
-	//raft.StartElection()
 }

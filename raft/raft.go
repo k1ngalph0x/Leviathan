@@ -131,4 +131,8 @@ func Make(me int32, peers []Peer) *Raft {
 	return rf
 }
 
+func(rf *Raft) Serve(){
+	
+}
+
 //go test ./... -v

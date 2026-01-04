@@ -79,6 +79,7 @@ func(rf *Raft) StartElection(){
 
 	votes := 1
 	rf.currentTerm++
+	electionTerm := rf.currentTerm
 	rf.votedFor = rf.me
 	rf.state = Candidate
 	totalPeers := len(rf.peers)
@@ -125,6 +126,26 @@ func(rf *Raft) StartElection(){
 
 		rf.mu.Lock()
 
+		//if election term is not equal to mine
+		if reply.Term != electionTerm || rf.state != Candidate || rf.currentTerm != electionTerm{
+			rf.mu.Unlock()
+			return 
+		}
+
+		//if election term is greater than mine
+		if reply.Term > rf.currentTerm{
+			rf.state = Follower
+			rf.currentTerm = reply.Term
+			rf.votedFor = -1
+			rf.mu.Unlock()
+			return
+		}
+
+		if reply.Term < electionTerm{
+			rf.mu.Unlock()
+			continue
+		}
+
 		if reply.VoteGranted{
 			votes++
 
@@ -158,6 +179,8 @@ func(rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply){
 	if args.Term > rf.currentTerm{
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
+		rf.state = Follower
+		reply.Term = rf.currentTerm
 	}
 
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId{

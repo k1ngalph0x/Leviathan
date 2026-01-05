@@ -1,10 +1,14 @@
 package raft
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"sync"
 	"time"
+
+	"go.etcd.io/bbolt"
 )
 
 type State int
@@ -24,6 +28,7 @@ type Raft struct{
 	state State
 	peers []Peer
 	mu sync.Mutex
+	db *bbolt.DB
 	log []LogEntry
 	votedFor int32
 	commitIndex int32
@@ -33,6 +38,12 @@ type Raft struct{
 	electionTimeout time.Duration
 	heartbeatInterval time.Duration	
 }
+
+var (
+	metaBucket = []byte("meta")
+	logBucket  = []byte("log")
+)
+
 
 type LogEntry struct{
 	Term int32
@@ -75,6 +86,57 @@ func(rf *Raft) GetState()(int32, State){
 	defer rf.mu.Unlock()
 
 	return rf.currentTerm, rf.state
+}
+
+func itob(v int32) []byte{
+	buffer := make([]byte, 4)
+	binary.BigEndian.PutUint32(buffer, uint32(v))
+	return buffer
+}
+
+func(rf *Raft) PersistMeta(){
+	rf.db.Update(func(tx *bbolt.Tx)error {
+		
+		//bucket := tx.Bucket([]byte("meta"))
+		bucket := tx.Bucket(metaBucket)
+		bucket.Put([]byte("currentTerm"), itob(rf.currentTerm))
+		bucket.Put([]byte("votedFor"), itob(rf.currentTerm))
+		return nil
+	})
+}
+
+func(rf *Raft) PersistLog(index int32, entry LogEntry){
+	rf.db.Update(func(tx *bbolt.Tx)error{
+		buffer := tx.Bucket(logBucket)
+		data, _ := json.Marshal(entry)
+		buffer.Put(itob(index), data)
+		return nil
+	})
+}
+
+func (rf *Raft) readPersist(){
+	rf.db.View(func(tx *bbolt.Tx)error{
+		
+		meta := tx.Bucket(metaBucket)
+		
+		if v:= meta.Get([]byte("currentTerm")); v!=nil{
+			rf.currentTerm = int32(binary.BigEndian.Uint32(v))
+		}
+
+		if v:= meta.Get([]byte("votedFor")); v!=nil{
+			rf.currentTerm = int32(binary.BigEndian.Uint32(v))
+		}
+
+		logB := tx.Bucket(logBucket)
+		logB.ForEach(func(k, v []byte)error{
+			var e LogEntry
+			json.Unmarshal(v, &e)
+			rf.log = append(rf.log, e)	
+			return nil
+		})
+
+		return nil
+	})
 }
 
 func(rf *Raft) StartHeartBeat(){
@@ -249,7 +311,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return 
 	}
 
-
 	if args.Term > rf.currentTerm{
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
@@ -265,6 +326,26 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 func Make(me int32, peers []Peer) *Raft {
 	rf := &Raft{}
 
+	db, err := bbolt.Open(
+		fmt.Sprintf("raft-%d.db", me),
+		0600,
+		nil,
+	)
+
+
+	if err != nil{
+		fmt.Println(err)
+		panic(err)
+	}
+
+	rf.db = db
+
+	db.Update(func(tx *bbolt.Tx) error {
+		_, _ = tx.CreateBucketIfNotExists(metaBucket)
+		_, _ = tx.CreateBucketIfNotExists(logBucket)
+
+		return nil
+	})
 
 	rf.me = me
 	rf.peers = peers
@@ -277,6 +358,7 @@ func Make(me int32, peers []Peer) *Raft {
 	rf.lastheartBeat  = time.Now()
 	rf.heartbeatInterval = 100 * time.Millisecond
 	rf.electionTimeout = time.Duration(300+rand.Intn(200)) * time.Millisecond
+	rf.readPersist()
 
 	return rf
 }
